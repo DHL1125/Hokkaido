@@ -267,6 +267,18 @@
   .tab[data-day-index]{user-select:none;-webkit-user-select:none;-webkit-touch-callout:none;touch-action:manipulation;cursor:pointer;max-width:280px;overflow:hidden;text-overflow:ellipsis}
   /* DAY 탭은 브라우저 기본 가로 스와이프/관성 스크롤을 사용하며 드래그 정렬하지 않는다. */
   #dayTabs{-webkit-overflow-scrolling:touch;touch-action:pan-x pan-y}
+  /* 일정 카드에서는 세로 페이지 스크롤을 유지하면서 수평 손가락 제스처만 별도 처리한다. */
+  #scheduleList.schedule-list{touch-action:pan-y;overscroll-behavior-x:contain}
+
+  /* Rev. 2.2.13: touch-tracking DAY slides. Only the itinerary becomes a viewport;
+     the sticky tabs and vertical document scrolling retain their native behavior. */
+  #scheduleList.day-swipe-active{position:relative;isolation:isolate;overflow:hidden}
+  #scheduleList.day-swipe-active > :not(.day-swipe-stage){visibility:hidden}
+  #scheduleList .day-swipe-stage{position:absolute;inset:0;overflow:hidden;pointer-events:none;z-index:3;background:rgba(251,253,254,.97)}
+  #scheduleList .day-swipe-sheet{position:absolute;inset-block-start:0;left:0;width:100%;box-sizing:border-box;padding:inherit;min-height:100%;background:rgba(251,253,254,.97);will-change:transform;backface-visibility:hidden;contain:layout style}
+  #scheduleList .day-swipe-sheet .item{pointer-events:none;user-select:none;-webkit-user-select:none}
+  @media(prefers-reduced-motion:reduce){#scheduleList .day-swipe-sheet{transition:none!important}}
+
   .issue-list{list-style:none;padding:0;margin:8px 0}
   .issue-button{width:100%;text-align:left;border:1px solid #eadbc1;border-radius:10px;padding:11px;background:white;color:#71572e;line-height:1.55;min-height:44px}
   .issue-button small{display:block;color:#866e4f;margin-top:3px}
@@ -509,7 +521,7 @@
     <button class="btn primary" id="addBtn">＋ 일정 추가</button>
   </div>
 
-  <p class="day-help">DAY 선택: 한 번 탭 · 이름/순서 수정: 더블클릭(두 번 탭) 후 ←/→ 버튼 · 날짜 목록: 좌우 스와이프 · 키보드: F2 이름, Alt+←/→ 이동</p>
+  <p class="day-help">DAY 선택: 한 번 탭 · <b>DAY 아래 일정을 좌우로 밀면 화면이 따라 이동 · 손을 떼면 DAY 변경</b> · 날짜 탭 가로 스크롤 유지 · 이름/순서: 두 번 탭 후 ←/→ · 키보드: F2 이름, Alt+←/→ 이동</p>
   <main class="layout" id="mainLayout">
     <section class="panel">
       <div class="panel-head">
@@ -721,8 +733,10 @@
 <div class="toast" id="toast"></div>
 
 <script>
-const APP_META={version:'2.2.11',revDate:'2026-11-13'};
+const APP_META={version:'2.2.13',revDate:'2026-11-13'};
 const RELEASE_NOTES=[
+  {version:'2.2.13',date:'2026-11-13',note:'모바일 일정 카드 좌우 이동 시 손가락 움직임을 따라 현재 DAY와 이웃 DAY가 나란히 실시간 슬라이드. 놓으면 관성 기준으로 전환하거나 스프링 복귀. 세로 스크롤·날짜 탭·편집·예산·실시간 날씨 유지'},
+  {version:'2.2.12',date:'2026-11-13',note:'모바일에서 DAY 아래 일정 카드 영역을 좌우로 스와이프하면 탭 순서대로 앞/다음 DAY 전환. 선택 DAY 탭 자동 중앙 정렬, 세로 스크롤·버튼·링크·상단 날짜 탭 스와이프·PC 드래그 정렬 유지'},
   {version:'2.2.9',date:'2026-11-13',note:'날씨 영역 터치 시 11/13~16 시간별 실시간 예보 창: 지역·DAY·시간대·강수 필터, 기온·강수확률·1시간 강수량, 직접 조회/새로고침 지원'},
   {version:'2.2.8',date:'2026-11-13',note:'DAY 1 원본 부산→삿포로 LJ527 항공료 예상 지출 ₩728,300 반영. 기존 브라우저에 저장된 미반영 일정(항공료 0원)도 다른 수정사항을 보존하면서 1회 자동 보정'},
   {version:'2.2.7',date:'2026-11-13',note:'상단 대시보드 5개 카드 터치 상세보기 추가: 원본 DAY 기준 일정·지출·예약·날짜별 내역, 날짜/카테고리·결제자별 필터, DAY 바로 이동. 스와이프·DAY 이름 편집 및 저장 기능 유지'},
@@ -981,15 +995,9 @@ function render(){
   renderDay();
 }
 
-function renderDay(){
-  $('mainLayout').classList.remove('overview-mode');$('sidePanel').classList.remove('hidden');$('addBtn').classList.remove('hidden');
-  const day=currentDay();
-  $('dayHeading').textContent=dayTabLabel(day);$('dayDate').textContent=prettyDate(day.date); $('panelHint').textContent='카드를 드래그하면 순서를 바꿀 수 있습니다.';
-  $('dayMemo').value=day.memo||'';
-  const list=$('scheduleList'); list.className='schedule-list';list.innerHTML='';if(dayNoteForConflict(day)){const n=document.createElement('div');n.className='scenario-warning';n.textContent=dayNoteForConflict(day);list.appendChild(n)}
-  if(!day.items.length){list.innerHTML='<div class="empty"><span class="emoji">🧳</span>아직 일정이 없습니다.<br>오른쪽 위의 <b>일정 추가</b> 버튼을 눌러 시작하세요.</div>'}
-  day.items.forEach(item=>{
-    const el=document.createElement('div'); el.className='item'; el.draggable=window.matchMedia('(hover:hover) and (pointer:fine)').matches; el.dataset.id=item.id;
+
+function createScheduleCard(item,interactive=true){
+    const el=document.createElement('div'); el.className='item'; el.draggable=interactive&&window.matchMedia('(hover:hover) and (pointer:fine)').matches; el.dataset.id=item.id;
     const link=(item.link?`<a href="${esc(item.link)}" target="_blank" rel="noopener" style="color:#2f7598;text-decoration:none;font-weight:700">예약·정보 ↗</a>`:'')+(item.place?`<a href="https://www.google.com/maps/search/?api=1&amp;query=${encodeURIComponent(item.place)}" target="_blank" rel="noopener" style="color:#2f7598;text-decoration:none;font-weight:700">지도 ↗</a>`:'');
     const conv=(item.costCurrency||'JPY')==='JPY'&&item.cost&&fxAvailable()?` <span class="converted">≈ ${won(toKRW(item))}</span>`:'';
     const actualConv=(item.actualCurrency||'JPY')==='JPY'&&item.actualCost&&fxAvailable()?` <span class="converted">≈ ${won(actualToKRW(item))}</span>`:'';
@@ -998,9 +1006,24 @@ function renderDay(){
       <div class="time">${esc(item.time||'--:--')}${item.endTime?`<span style="font-size:12px;color:var(--muted);font-weight:800"> ~ ${esc(item.endTime)}</span>`:''}<span class="duration">${esc(item.duration||'')}</span></div>
       <div><div class="item-title">${esc(item.title)}</div><div class="meta"><span class="tag ${esc(item.category)}">${catLabel(item.category)}</span>${item.place?`<span>📍 ${esc(item.place)}</span>`:''}${item.cost?`<span class="cost-badge">예상 ${money(item.cost,item.costCurrency)}${conv}</span>`:''}${item.actualCost?`<span class="actual-badge">실제 ${money(item.actualCost,item.actualCurrency)}${actualConv}</span>`:''}${payer}${item.reserved?'<span>✅ 예약완료</span>':''}${link}</div>${item.note?`<div class="note">${esc(item.note)}</div>`:''}</div>
       <div class="item-actions"><button type="button" class="icon-btn" title="일정 수정" aria-label="${esc(item.title)} 일정 수정" onclick="editItem('${item.id}')">✎</button><button type="button" class="icon-btn" title="일정 삭제" aria-label="${esc(item.title)} 일정 삭제" onclick="deleteItem('${item.id}')">×</button></div>`;
-    el.addEventListener('dragstart',()=>el.classList.add('dragging')); el.addEventListener('dragend',()=>el.classList.remove('dragging'));
-    list.appendChild(el);
-  });
+    if(interactive){
+      el.addEventListener('dragstart',()=>el.classList.add('dragging'));
+      el.addEventListener('dragend',()=>el.classList.remove('dragging'));
+    }else{
+      el.querySelectorAll('button,a').forEach(control=>{control.tabIndex=-1;control.removeAttribute('onclick')});
+    }
+    return el;
+
+}
+
+function renderDay(){
+  $('mainLayout').classList.remove('overview-mode');$('sidePanel').classList.remove('hidden');$('addBtn').classList.remove('hidden');
+  const day=currentDay();
+  $('dayHeading').textContent=dayTabLabel(day);$('dayDate').textContent=prettyDate(day.date); $('panelHint').textContent='카드를 드래그하면 순서를 바꿀 수 있습니다.';
+  $('dayMemo').value=day.memo||'';
+  const list=$('scheduleList'); list.className='schedule-list';list.innerHTML='';if(dayNoteForConflict(day)){const n=document.createElement('div');n.className='scenario-warning';n.textContent=dayNoteForConflict(day);list.appendChild(n)}
+  if(!day.items.length){list.innerHTML='<div class="empty"><span class="emoji">🧳</span>아직 일정이 없습니다.<br>오른쪽 위의 <b>일정 추가</b> 버튼을 눌러 시작하세요.</div>'}
+  day.items.forEach(item=>list.appendChild(createScheduleCard(item)));
   list.ondragover=e=>{e.preventDefault();const dragging=list.querySelector('.dragging');if(!dragging)return;const after=getDragAfterElement(list,e.clientY);if(after==null)list.appendChild(dragging);else list.insertBefore(dragging,after)};
   list.ondrop=()=>{const ids=[...list.querySelectorAll('.item')].map(x=>x.dataset.id);day.items.sort((a,b)=>ids.indexOf(a.id)-ids.indexOf(b.id));save();showToast('순서를 저장했습니다.')};
   const dc=day.items.length, isPlan=!!day.planVariant;
@@ -1725,5 +1748,147 @@ document.querySelector('.weather-bar').addEventListener('click',e=>{
 });
 $('forecastModal').querySelectorAll('[data-close]').forEach(btn=>btn.addEventListener('click',()=>forecastClose()));
 $('forecastModal').addEventListener('click',e=>{if(e.target===$('forecastModal'))forecastClose();});
+
+
+// Rev. 2.2.13: follow-finger slide with adjacent DAY preview.
+// Only the itinerary list moves; top DAY tabs, vertical scroll and desktop drag-sort stay native.
+function initItineraryDaySwipe(){
+  const area=$('scheduleList');
+  const tabBar=$('dayTabs');
+  const prefersReduced=window.matchMedia('(prefers-reduced-motion: reduce)');
+  const minIntent=12;
+  const duration=275;
+  let gesture=null;
+  let animating=false;
+
+  function centerSelectedTab(){
+    const selected=tabBar.querySelector('.tab.active[data-day-index]');
+    if(!selected)return;
+    const left=selected.offsetLeft-tabBar.offsetLeft-(tabBar.clientWidth-selected.offsetWidth)/2;
+    if(typeof tabBar.scrollTo==='function')tabBar.scrollTo({left,behavior:prefersReduced.matches?'auto':'smooth'});
+    else tabBar.scrollLeft=left;
+  }
+  function makeSheet(dayIndex){
+    const day=state.days[dayIndex];
+    const sheet=document.createElement('div');
+    sheet.className='day-swipe-sheet';
+    if(!day)return sheet;
+    if(dayNoteForConflict(day)){
+      const warning=document.createElement('div');warning.className='scenario-warning';
+      warning.textContent=dayNoteForConflict(day);sheet.appendChild(warning);
+    }
+    if(!day.items.length){
+      sheet.innerHTML+='<div class="empty"><span class="emoji">🧳</span>아직 일정이 없습니다.</div>';
+    }else day.items.forEach(item=>sheet.appendChild(createScheduleCard(item,false)));
+    return sheet;
+  }
+  function clean(g){
+    if(g?.stage)g.stage.remove();
+    area.classList.remove('day-swipe-active');
+  }
+  function prepare(g,dx){
+    if(g.stage)return;
+    // The original schedule remains in the DOM for layout and vertical scroll.
+    const stage=document.createElement('div');stage.className='day-swipe-stage';
+    const original=document.createElement('div');original.className='day-swipe-sheet';
+    [...area.children].forEach(child=>original.appendChild(child.cloneNode(true)));
+    original.querySelectorAll('button,a').forEach(el=>{el.removeAttribute('onclick');el.tabIndex=-1});
+    stage.appendChild(original);
+    area.appendChild(stage);area.classList.add('day-swipe-active');
+    g.stage=stage;g.original=original;g.width=Math.max(1,area.clientWidth);
+    showNeighbor(g,dx);
+  }
+  function showNeighbor(g,dx){
+    const dir=dx<0?1:-1;
+    if(g.dir===dir)return;
+    if(g.neighbor)g.neighbor.remove();
+    g.dir=dir;
+    g.dest=state.activeDay+dir;
+    g.neighbor=g.dest>=0&&g.dest<state.days.length?makeSheet(g.dest):null;
+    if(g.neighbor)g.stage.appendChild(g.neighbor);
+  }
+  function draw(g,rawDx){
+    if(!g.stage?.isConnected)return;
+    showNeighbor(g,rawDx || (g.dir===1?-1:1));
+    const w=g.width;
+    // Soft resistance when the first/last DAY has no adjacent page.
+    const limited=Math.max(-w,Math.min(w,rawDx));
+    const dx=g.neighbor?limited:limited*0.19;
+    g.visualDx=dx;
+    g.original.style.transform=`translate3d(${dx}px,0,0)`;
+    if(g.neighbor)g.neighbor.style.transform=`translate3d(${dx+g.dir*w}px,0,0)`;
+  }
+  function settle(g,commit){
+    if(!g.stage?.isConnected){clean(g);animating=false;return;}
+    animating=true;
+    const w=g.width;
+    const end=commit?-g.dir*w:0;
+    const t=prefersReduced.matches?0:duration;
+    const easing='cubic-bezier(.22,.75,.24,1)';
+    g.original.style.transition=`transform ${t}ms ${easing}`;
+    if(g.neighbor)g.neighbor.style.transition=`transform ${t}ms ${easing}`;
+    // A frame gap ensures the browser interpolates from the last finger position.
+    requestAnimationFrame(()=>{
+      if(!g.stage?.isConnected){animating=false;return;}
+      g.original.style.transform=`translate3d(${end}px,0,0)`;
+      if(g.neighbor)g.neighbor.style.transform=`translate3d(${end+g.dir*w}px,0,0)`;
+    });
+    const finish=()=>{
+      if(!g.stage?.isConnected){animating=false;return;}
+      clean(g);
+      if(commit&&g.dest>=0&&g.dest<state.days.length){
+        selectDay(state.days[g.dest]);
+        centerSelectedTab();
+      }
+      animating=false;
+    };
+    window.setTimeout(finish,t+45);
+  }
+  area.addEventListener('pointerdown',e=>{
+    if(animating||gesture||overviewMode||allScheduleMode||e.isPrimary===false)return;
+    if(!['touch','pen'].includes(e.pointerType))return;
+    if(!(e.target instanceof Element))return;
+    if(e.target.closest('a,button,input,textarea,select,label,summary,[contenteditable],[role="button"],.table-scroll'))return;
+    gesture={id:e.pointerId,x:e.clientX,y:e.clientY,at:performance.now(),locked:false,vertical:false,lastDx:0,lastTime:performance.now(),stage:null,dir:0,neighbor:null,dest:-1};
+  },{passive:true});
+  area.addEventListener('pointermove',e=>{
+    const g=gesture;
+    if(!g||e.pointerId!==g.id||g.vertical)return;
+    const dx=e.clientX-g.x,dy=e.clientY-g.y;
+    if(!g.locked){
+      if(Math.abs(dy)>minIntent&&Math.abs(dy)>Math.abs(dx)*1.12){g.vertical=true;return;}
+      if(Math.abs(dx)<minIntent||Math.abs(dx)<Math.abs(dy)*1.3)return;
+      g.locked=true;
+      prepare(g,dx);
+      try{area.setPointerCapture(e.pointerId)}catch(ignore){}
+    }
+    if(e.cancelable)e.preventDefault();
+    const now=performance.now();
+    g.velocity=(dx-g.lastDx)/Math.max(1,now-g.lastTime);
+    g.lastDx=dx;g.lastTime=now;
+    draw(g,dx);
+  },{passive:false});
+  const release=(e,cancelled)=>{
+    const g=gesture;
+    if(!g||e.pointerId!==g.id)return;
+    gesture=null;
+    if(!g.locked){clean(g);return;}
+    if(e.cancelable&&!cancelled)e.preventDefault();
+    const dx=e.clientX-g.x;
+    draw(g,dx);
+    const speed=Math.abs(g.velocity||0);
+    const enough=Math.abs(dx)>=Math.max(64,g.width*.24);
+    const flick=Math.abs(dx)>=42&&speed>.48&&performance.now()-g.lastTime<110&&performance.now()-g.at<750;
+    const commit=!cancelled&&!!g.neighbor&&(enough||flick);
+    try{if(area.hasPointerCapture(e.pointerId))area.releasePointerCapture(e.pointerId)}catch(ignore){}
+    settle(g,commit);
+  };
+  area.addEventListener('pointerup',e=>release(e,false),{passive:false});
+  area.addEventListener('pointercancel',e=>release(e,true),{passive:true});
+  window.addEventListener('blur',()=>{
+    if(gesture){const g=gesture;gesture=null;if(g.locked)settle(g,false);else clean(g);}
+  });
+}
+initItineraryDaySwipe();
 
 </script></body></html>
